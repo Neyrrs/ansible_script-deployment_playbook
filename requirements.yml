@@ -1,0 +1,9 @@
+---
+# Install dengan: ansible-galaxy collection install -r requirements.yml
+collections:
+  - name: ansible.windows      # win_shell, win_get_url, win_service, dll
+    version: ">=2.0.0"
+  - name: ansible.posix        # utility tambahan untuk Linux (facts, firewalld, dll)
+    version: ">=1.5.0"
+  - name: community.general    # modul umum (uri, dll) jika dibutuhkan
+    version: ">=8.0.0"

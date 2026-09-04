@@ -1,0 +1,55 @@
+- name: Deploy Vision One Agent - Windows
+  hosts: vision_one_windows
+  gather_facts: false
+
+  tasks:
+    - name: Cek apakah service SEP sudah ada & running
+      ansible.windows.win_service_info:
+        name: "{{ item }}"
+      loop: "{{ vision_one_service_names_windows }}"
+      register: v1_win_service
+
+    - name: Set flag jika semua service SEP sudah aktif
+      ansible.builtin.set_fact:
+        vision_one_already_installed: "{{ vision_one_already_installed | default(true) and
+                                           (item.services | length > 0) and
+                                           (item.services[0].state == 'started') }}"
+      loop: "{{ v1_win_service.results }}"
+
+    - name: Download deployment script (PowerShell) dari Vision One
+      ansible.windows.win_get_url:
+        url: "{{ vision_one_windows_script_url }}"
+        dest: "{{ vision_one_script_dest }}"
+        # proxy_url: "{{ vision_one_proxy_url if vision_one_use_proxy else omit }}"
+      when: not vision_one_already_installed
+
+    - name: Jalankan deployment script (install + activate agent)
+      ansible.windows.win_shell: "powershell.exe -ExecutionPolicy Bypass -File \"{{ vision_one_script_dest }}\""
+      register: v1_win_install_result
+      when: not vision_one_already_installed
+
+    - name: Tampilkan output instalasi
+      ansible.builtin.debug:
+        var: v1_win_install_result.stdout_lines
+      when: not vision_one_already_installed and v1_win_install_result is defined
+
+    - name: Bersihkan script installer setelah dipakai
+      ansible.windows.win_file:
+        path: "{{ vision_one_script_dest }}"
+        state: absent
+      when: not vision_one_already_installed
+
+    - name: Verifikasi ulang setiap service SEP berjalan
+      ansible.windows.win_service_info:
+        name: "{{ item }}"
+      loop: "{{ vision_one_service_names_windows }}"
+      register: v1_win_service_check
+
+    # - name: Assert setiap service SEP aktif
+    #   ansible.builtin.assert:
+    #     that:
+    #       - item.services | length > 0
+    #       - item.services[0].state == 'started'
+    #     fail_msg: "Service SEP tidak berjalan di {{ inventory_hostname }}, cek log instalasi manual."
+    #     success_msg: "Service SEP {{ item.item }} aktif di {{ inventory_hostname }}."
+    #   loop: "{{ v1_win_service_check.results }}"
