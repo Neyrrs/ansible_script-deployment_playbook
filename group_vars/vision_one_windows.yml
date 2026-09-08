@@ -1,11 +1,7 @@
 ---
-# CARA MENDAPATKAN URL:
-# Trend Vision One console -> Endpoint Security -> Endpoint Inventory
-# -> Agent Installer tab -> Deployment Script -> pilih OS Windows -> Copy link
+vision_one_script_src: "{{ playbook_dir }}/group_vars/deployment_script.ps1"
 
-vision_one_windows_script_url: "{{ vault_vision_one_windows_script_url }}"
-
-vision_one_script_dest: "C:\\Windows\\Temp\\tm_vision_one_deploy.ps1"
+vision_one_script_dest: "C:\\Windows\\Temp\\deployment_script.ps1"
 
 vision_one_use_proxy: false
 vision_one_proxy_url: "http://proxy.example.local:3128"

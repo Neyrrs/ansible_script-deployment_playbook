@@ -1,6 +1,6 @@
 - name: Deploy Vision One Agent - Windows
   hosts: vision_one_windows
-  gather_facts: false
+  gather_facts: true
 
   tasks:
     - name: Cek apakah service SEP sudah ada & running
@@ -16,28 +16,30 @@
                                            (item.services[0].state == 'started') }}"
       loop: "{{ v1_win_service.results }}"
 
-    - name: Download deployment script (PowerShell) dari Vision One
-      ansible.windows.win_get_url:
-        url: "{{ vision_one_windows_script_url }}"
-        dest: "{{ vision_one_script_dest }}"
-        # proxy_url: "{{ vision_one_proxy_url if vision_one_use_proxy else omit }}"
+    - name: Deploy agent dari deployment script PowerShell
       when: not vision_one_already_installed
+      block:
+        - name: Kirim deployment script ke Windows managed node
+          ansible.windows.win_copy:
+            src: "{{ vision_one_script_src }}"
+            dest: "{{ vision_one_script_dest }}"
 
-    - name: Jalankan deployment script (install + activate agent)
-      ansible.windows.win_shell: "powershell.exe -ExecutionPolicy Bypass -File \"{{ vision_one_script_dest }}\""
-      register: v1_win_install_result
-      when: not vision_one_already_installed
+        - name: Jalankan deployment script
+          ansible.windows.win_shell: >-
+            powershell.exe -NoProfile -NonInteractive
+            -ExecutionPolicy Bypass
+            -File "{{ vision_one_script_dest }}"
+          register: v1_win_install_result
 
-    - name: Tampilkan output instalasi
-      ansible.builtin.debug:
-        var: v1_win_install_result.stdout_lines
-      when: not vision_one_already_installed and v1_win_install_result is defined
+        - name: Tampilkan output instalasi
+          ansible.builtin.debug:
+            var: v1_win_install_result.stdout_lines
 
-    - name: Bersihkan script installer setelah dipakai
-      ansible.windows.win_file:
-        path: "{{ vision_one_script_dest }}"
-        state: absent
-      when: not vision_one_already_installed
+      always:
+        - name: Bersihkan deployment script dari Windows
+          ansible.windows.win_file:
+            path: "{{ vision_one_script_dest }}"
+            state: absent
 
     - name: Verifikasi ulang setiap service SEP berjalan
       ansible.windows.win_service_info:
