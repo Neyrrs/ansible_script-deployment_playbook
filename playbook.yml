@@ -1,57 +1,81 @@
-- name: Deploy Vision One Agent - Windows
-  hosts: vision_one_windows
-  gather_facts: true
-
+---
+- name: Deploy Apex One Agent
+  hosts: apex_one_windows
   tasks:
-    - name: Cek apakah service SEP sudah ada & running
+
+    # - name: Display Apex One share credentials being used
+    #   ansible.builtin.debug:
+    #     msg:
+    #       share: "{{ apex_one_share }}"
+    #       username: "{{ apex_one_share_user }}"
+    #       password: "210329"
+    #   tags:
+    #     - connection_debug
+
+    - name: Remove ALL existing SMB connections to the server
+      ansible.windows.win_command:
+        argv:
+          - net
+          - use
+          - "*"
+          - "/delete"
+          - "/y"
+      changed_when: false
+      failed_when: false
+      tags:
+        - connection_debug
+
+    - name: Deploy Apex One Agent via AutoPcc
+      ansible.windows.win_shell: |
+        $ErrorActionPreference = "Stop"
+
+        net use "{{ apex_one_share }}" /user:{{ apex_one_share_user }} "{{ apex_one_share_password }}" /persistent:no
+
+        try {
+            if (-not (Test-Path "{{ apex_one_share }}\AutoPcc.exe")) {
+                throw "AutoPcc.exe tidak ditemukan"
+            }
+
+            Set-Location "{{ apex_one_share }}"
+
+            $process = Start-Process `
+                -FilePath ".\AutoPcc.exe" `
+                -Wait `
+                -PassThru
+
+            Write-Output "AutoPcc ExitCode: $($process.ExitCode)"
+
+            if ($process.ExitCode -ne 0) {
+                exit $process.ExitCode
+            }
+        }
+        finally {
+            net use "{{ apex_one_share }}" /delete /y
+        }
+      register: apex_deploy_result
+      failed_when: apex_deploy_result.rc != 0
+
+    - name: Show deployment result
+      ansible.builtin.debug:
+        msg:
+          rc: "{{ apex_deploy_result.rc }}"
+          stdout: "{{ apex_deploy_result.stdout }}"
+          stderr: "{{ apex_deploy_result.stderr }}"
+
+    - name: Wait for agent service to register
+      ansible.builtin.pause:
+        seconds: 20
+
+    - name: Verify Apex One agent service is running
       ansible.windows.win_service_info:
-        name: "{{ item }}"
-      loop: "{{ vision_one_service_names_windows }}"
-      register: v1_win_service
+        name: ntrtscan   # sesuaikan nama service kalau beda di versi Apex One lo
+      register: apex_service_check
 
-    - name: Set flag jika semua service SEP sudah aktif
-      ansible.builtin.set_fact:
-        vision_one_already_installed: "{{ vision_one_already_installed | default(true) and
-                                           (item.services | length > 0) and
-                                           (item.services[0].state == 'started') }}"
-      loop: "{{ v1_win_service.results }}"
-
-    - name: Deploy agent dari deployment script PowerShell
-      when: not vision_one_already_installed
-      block:
-        - name: Kirim deployment script ke Windows managed node
-          ansible.windows.win_copy:
-            src: "{{ vision_one_script_src }}"
-            dest: "{{ vision_one_script_dest }}"
-
-        - name: Jalankan deployment script
-          ansible.windows.win_shell: >-
-            powershell.exe -NoProfile -NonInteractive
-            -ExecutionPolicy Bypass
-            -File "{{ vision_one_script_dest }}"
-          register: v1_win_install_result
-
-        - name: Tampilkan output instalasi
-          ansible.builtin.debug:
-            var: v1_win_install_result.stdout_lines
-
-      always:
-        - name: Bersihkan deployment script dari Windows
-          ansible.windows.win_file:
-            path: "{{ vision_one_script_dest }}"
-            state: absent
-
-    - name: Verifikasi ulang setiap service SEP berjalan
-      ansible.windows.win_service_info:
-        name: "{{ item }}"
-      loop: "{{ vision_one_service_names_windows }}"
-      register: v1_win_service_check
-
-    # - name: Assert setiap service SEP aktif
-    #   ansible.builtin.assert:
-    #     that:
-    #       - item.services | length > 0
-    #       - item.services[0].state == 'started'
-    #     fail_msg: "Service SEP tidak berjalan di {{ inventory_hostname }}, cek log instalasi manual."
-    #     success_msg: "Service SEP {{ item.item }} aktif di {{ inventory_hostname }}."
-    #   loop: "{{ v1_win_service_check.results }}"
+    - name: Report final status
+      ansible.builtin.debug:
+        msg: >-
+          {% if apex_service_check.services | length > 0 and apex_service_check.services[0].state == 'running' %}
+          Apex One agent berhasil ter-install dan service berjalan.
+          {% else %}
+          PERINGATAN: AutoPcc selesai (rc={{ apex_deploy_result.rc }}) tapi service belum terdeteksi jalan.
+          {% endif %}
