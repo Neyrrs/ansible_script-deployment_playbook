@@ -79,7 +79,7 @@
 
     - name: Verify Apex One agent service is running
       ansible.windows.win_service_info:
-        name: ntrtscan   # sesuaikan nama service kalau beda di versi Apex One lo
+        name: ntrtscan
       register: apex_service_check
 
     - name: Report final status
