@@ -30,6 +30,9 @@
         $ErrorActionPreference = "Stop"
 
         net use "{{ apex_one_share }}" /user:{{ apex_one_share_user }} "{{ apex_one_share_password }}" /persistent:no
+        if ($LASTEXITCODE -ne 0) {
+            throw "Gagal membuat koneksi ke share (exit code: $LASTEXITCODE)"
+        }
 
         try {
             if (-not (Test-Path "{{ apex_one_share }}\AutoPcc.exe")) {
@@ -38,13 +41,19 @@
 
             Set-Location "{{ apex_one_share }}"
 
-            $process = Start-Process `
-                -FilePath ".\AutoPcc.exe" `
-                -Wait `
-                -PassThru
+            $env:SEE_MASK_NOZONECHECKS = "1"   # <-- ini kuncinya, skip popup "Open File - Security Warning"
+
+            $process = Start-Process -FilePath ".\AutoPcc.exe" -PassThru
+            $completed = $process.WaitForExit({{ apex_one_autopcc_timeout_seconds }} * 1000)
+
+            Remove-Item Env:\SEE_MASK_NOZONECHECKS -ErrorAction SilentlyContinue
+
+            if (-not $completed) {
+                Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+                throw "AutoPcc.exe tidak selesai dalam {{ apex_one_autopcc_timeout_seconds }} detik"
+            }
 
             Write-Output "AutoPcc ExitCode: $($process.ExitCode)"
-
             if ($process.ExitCode -ne 0) {
                 exit $process.ExitCode
             }
@@ -53,6 +62,8 @@
             net use "{{ apex_one_share }}" /delete /y
         }
       register: apex_deploy_result
+      async: 2400
+      poll: 15
       failed_when: apex_deploy_result.rc != 0
 
     - name: Show deployment result
