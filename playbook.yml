@@ -44,14 +44,9 @@
             $env:SEE_MASK_NOZONECHECKS = "1"   # <-- ini kuncinya, skip popup "Open File - Security Warning"
 
             $process = Start-Process -FilePath ".\AutoPcc.exe" -PassThru
-            $completed = $process.WaitForExit({{ apex_one_autopcc_timeout_seconds }} * 1000)
+            $process.WaitForExit()
 
             Remove-Item Env:\SEE_MASK_NOZONECHECKS -ErrorAction SilentlyContinue
-
-            if (-not $completed) {
-                Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-                throw "AutoPcc.exe tidak selesai dalam {{ apex_one_autopcc_timeout_seconds }} detik"
-            }
 
             Write-Output "AutoPcc ExitCode: $($process.ExitCode)"
             if ($process.ExitCode -ne 0) {
@@ -62,8 +57,6 @@
             net use "{{ apex_one_share }}" /delete /y
         }
       register: apex_deploy_result
-      async: 2400
-      poll: 15
       failed_when: apex_deploy_result.rc != 0
 
     - name: Show deployment result
