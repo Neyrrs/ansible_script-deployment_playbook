@@ -42,28 +42,28 @@
             throw "Gagal membuat koneksi ke share (exit code: $LASTEXITCODE)"
         }
 
-        # try {
-        #     if (-not (Test-Path "{{ apex_one_share }}\AutoPcc.exe")) {
-        #         throw "AutoPcc.exe tidak ditemukan"
-        #     }
+        try {
+            if (-not (Test-Path "{{ apex_one_share }}\AutoPcc.exe")) {
+                throw "AutoPcc.exe tidak ditemukan"
+            }
 
-        #     Set-Location "{{ apex_one_share }}"
+            Set-Location "{{ apex_one_share }}"
 
-        #     $env:SEE_MASK_NOZONECHECKS = "1"   # <-- ini kuncinya, skip popup "Open File - Security Warning"
+            $env:SEE_MASK_NOZONECHECKS = "1"   # <-- ini kuncinya, skip popup "Open File - Security Warning"
 
-        #     $process = Start-Process -FilePath ".\AutoPcc.exe" -PassThru
-        #     $process.WaitForExit()
+            $process = Start-Process -FilePath ".\AutoPcc.exe" -PassThru
+            $process.WaitForExit()
 
-        #     Remove-Item Env:\SEE_MASK_NOZONECHECKS -ErrorAction SilentlyContinue
+            Remove-Item Env:\SEE_MASK_NOZONECHECKS -ErrorAction SilentlyContinue
 
-        #     Write-Output "AutoPcc ExitCode: $($process.ExitCode)"
-        #     if ($process.ExitCode -ne 0) {
-        #         exit $process.ExitCode
-        #     }
-        # }
-        # finally {
-        #     net use "{{ apex_one_share }}" /delete /y
-        # }
+            Write-Output "AutoPcc ExitCode: $($process.ExitCode)"
+            if ($process.ExitCode -ne 0) {
+                exit $process.ExitCode
+            }
+        }
+        finally {
+            net use "{{ apex_one_share }}" /delete /y
+        }
       register: apex_deploy_result
       tags:
         - install
