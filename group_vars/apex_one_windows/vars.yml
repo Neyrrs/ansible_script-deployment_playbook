@@ -1,0 +1,6 @@
+apex_one_share: '\\10.100.33.116\ofcscan'
+apex_one_share_user: "{{ vault_apex_one_share_user }}"
+apex_one_share_password: "{{ vault_apex_one_share_password }}"
+apex_one_connection_debug: true
+ansible_winrm_operation_timeout_sec: 600
+ansible_winrm_read_timeout_sec: 660

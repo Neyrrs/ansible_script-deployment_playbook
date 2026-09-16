@@ -1,7 +1,0 @@
-apex_one_share: '\\10.100.33.119\ofcscan'
-# Share access uses the interactive user's account, not the WinRM account.
-apex_one_share_user: 'Administrator'
-apex_one_share_password: "P@ssw0rd"
-apex_one_connection_debug: true
-ansible_winrm_operation_timeout_sec: 1000
-ansible_winrm_read_timeout_sec: 1200

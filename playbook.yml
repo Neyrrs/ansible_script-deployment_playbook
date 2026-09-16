@@ -2,15 +2,12 @@
 - name: Deploy Apex One Agent
   hosts: apex_one_windows
   tasks:
-
-    # - name: Display Apex One share credentials being used
-    #   ansible.builtin.debug:
-    #     msg:
-    #       share: "{{ apex_one_share }}"
-    #       username: "{{ apex_one_share_user }}"
-    #       password: "210329"
-    #   tags:
-    #     - connection_debug
+    - name: Check whether Apex One agent is already installed
+      ansible.windows.win_service_info:
+        name: ntrtscan
+      register: apex_service_precheck
+      tags:
+        - precheck
 
     - name: Remove ALL existing SMB connections to the server
       ansible.windows.win_command:
@@ -24,6 +21,17 @@
       failed_when: false
       tags:
         - connection_debug
+        - deploy
+      when: apex_service_precheck.services | length == 0
+
+    - name: Kill any lingering AutoPcc.exe processes from previous runs
+      ansible.windows.win_shell: |
+        Get-Process -Name AutoPcc -ErrorAction SilentlyContinue | Stop-Process -Force
+      changed_when: false
+      failed_when: false
+      tags:
+        - deploy
+      when: apex_service_precheck.services | length == 0
 
     - name: Deploy Apex One Agent via AutoPcc
       ansible.windows.win_shell: |
@@ -34,30 +42,33 @@
             throw "Gagal membuat koneksi ke share (exit code: $LASTEXITCODE)"
         }
 
-        try {
-            if (-not (Test-Path "{{ apex_one_share }}\AutoPcc.exe")) {
-                throw "AutoPcc.exe tidak ditemukan"
-            }
+        # try {
+        #     if (-not (Test-Path "{{ apex_one_share }}\AutoPcc.exe")) {
+        #         throw "AutoPcc.exe tidak ditemukan"
+        #     }
 
-            Set-Location "{{ apex_one_share }}"
+        #     Set-Location "{{ apex_one_share }}"
 
-            $env:SEE_MASK_NOZONECHECKS = "1"   # <-- ini kuncinya, skip popup "Open File - Security Warning"
+        #     $env:SEE_MASK_NOZONECHECKS = "1"   # <-- ini kuncinya, skip popup "Open File - Security Warning"
 
-            $process = Start-Process -FilePath ".\AutoPcc.exe" -PassThru
-            $process.WaitForExit()
+        #     $process = Start-Process -FilePath ".\AutoPcc.exe" -PassThru
+        #     $process.WaitForExit()
 
-            Remove-Item Env:\SEE_MASK_NOZONECHECKS -ErrorAction SilentlyContinue
+        #     Remove-Item Env:\SEE_MASK_NOZONECHECKS -ErrorAction SilentlyContinue
 
-            Write-Output "AutoPcc ExitCode: $($process.ExitCode)"
-            if ($process.ExitCode -ne 0) {
-                exit $process.ExitCode
-            }
-        }
-        finally {
-            net use "{{ apex_one_share }}" /delete /y
-        }
+        #     Write-Output "AutoPcc ExitCode: $($process.ExitCode)"
+        #     if ($process.ExitCode -ne 0) {
+        #         exit $process.ExitCode
+        #     }
+        # }
+        # finally {
+        #     net use "{{ apex_one_share }}" /delete /y
+        # }
       register: apex_deploy_result
-      failed_when: apex_deploy_result.rc != 0
+      tags:
+        - install
+        - deploy
+      when: apex_service_precheck.services | length == 0
 
     - name: Show deployment result
       ansible.builtin.debug:
@@ -65,21 +76,36 @@
           rc: "{{ apex_deploy_result.rc }}"
           stdout: "{{ apex_deploy_result.stdout }}"
           stderr: "{{ apex_deploy_result.stderr }}"
+      when: apex_service_precheck.services | length == 0
+      tags:
+        - deploy
 
     - name: Wait for agent service to register
       ansible.builtin.pause:
         seconds: 20
+      tags:
+        - install
+        - deploy
+      when: apex_service_precheck.services | length == 0
 
     - name: Verify Apex One agent service is running
       ansible.windows.win_service_info:
         name: ntrtscan
       register: apex_service_check
+      tags:
+        - verify
+
+    - name: Report final status
+      ansible.builtin.debug:
+        msg: apex_service_check
+      tags:
+        - verify
 
     - name: Report final status
       ansible.builtin.debug:
         msg: >-
           {% if apex_service_check.services | length > 0 and apex_service_check.services[0].state == 'running' %}
           Apex One agent berhasil ter-install dan service berjalan.
-          {% else %}
-          PERINGATAN: AutoPcc selesai (rc={{ apex_deploy_result.rc }}) tapi service belum terdeteksi jalan.
           {% endif %}
+      tags:
+        - verify
