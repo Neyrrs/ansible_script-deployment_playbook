@@ -1,8 +1,8 @@
-# Trend Vision One Windows Agent Deployment
+# Trend Vision One Windows AutoPcc Deployment
 
-This Ansible playbook deploys a portable Trend Vision One agent package on Windows hosts.
+This Ansible playbook currently deploys the Trend Vision One agent on Windows endpoints by connecting to an SMB share and running the `AutoPcc.exe` installation flow from the share.
 
-Create the package once with Client Packager on the Apex One/Vision One server. Store the resulting MSI or EXE in the controller; Ansible only transfers that single artifact and executes it on the endpoint.
+The current setup does not copy an MSI/EXE artifact from the controller to the remote host. Instead, the playbook uses a UNC path such as `\\10.100.33.116\ofcscan`, maps it with `net use`, and then runs the deployment script from that share.
 
 ## Requirements
 
@@ -10,7 +10,8 @@ Create the package once with Client Packager on the Apex One/Vision One server. 
 - WinRM enabled on the Windows host
 - Ansible collection `ansible.windows`
 - A Windows account with Administrator rights
-- A Client Packager MSI or EXE artifact
+- Access to the Apex One / Vision One share (`\\server\share`)
+- Valid credentials stored in Ansible Vault
 
 Install the required collection:
 
@@ -18,85 +19,101 @@ Install the required collection:
 ansible-galaxy collection install -r requirements.yml
 ```
 
-## Configure the inventory
+## Inventory
 
-Edit `inventory/hosts.ini` and add your Windows host:
+Current inventory is configured like this:
 
 ```ini
-[vision_one_windows]
-windows-home ansible_host=DESKTOP-PI6EBAV
+[apex_one_windows]
+windows-home1 ansible_host=10.100.36.147
+windows-home2 ansible_host=10.100.36.148
 
-[vision_one_windows:vars]
+[apex_one_windows:vars]
 ansible_user=Administrator
 ansible_connection=winrm
 ansible_winrm_transport=ntlm
 ansible_port=5985
 ansible_winrm_scheme=http
+ansible_password=P@ssw0rd
 ```
 
-Do not store `ansible_password` in a plain text file. Use Ansible Vault or provide it with a secure secret-management method.
+Do not keep sensitive credentials in plain text when possible. In this project, the share user and password are stored in the vault file under `group_vars/apex_one_windows/vault.yml`.
 
-## Configure the package
+## Variables
 
-Set the package source, destination, and silent arguments in:
-
-```text
-group_vars/vision_one_windows.yml
-```
-
-Default MSI values (the example below uses the artifact fetched to `/opt/apex-installer`):
+The relevant values are stored in `group_vars/apex_one_windows/vars.yml`:
 
 ```yaml
-vision_one_package_src: "/opt/apex-installer/Agent_Installer.msi"
-vision_one_package_dest: "C:\\Windows\\Temp\\VisionOneAgent.msi"
-vision_one_package_arguments: "/qn /norestart"
+apex_one_share: '\\10.100.33.116\ofcscan'
+apex_one_share_user: "{{ vault_apex_one_share_user }}"
+apex_one_share_password: "{{ vault_apex_one_share_password }}"
+apex_one_connection_debug: true
+ansible_winrm_operation_timeout_sec: 600
+ansible_winrm_read_timeout_sec: 660
 ```
 
-For an EXE package, point `vision_one_package_src` and `vision_one_package_dest` to the EXE and replace `vision_one_package_arguments` with the silent switch defined when the package was generated. Do not deploy the raw `ofcscan` folder.
-
-Keep the package private if it contains tenant information or activation data. Do not commit it to a public repository.
-
-If the Windows host uses a proxy, set:
-
-```yaml
-vision_one_use_proxy: true
-vision_one_proxy_url: "http://proxy.example.local:3128"
-```
-
-The proxy setting is used by Ansible when needed. The packaged installer must also contain the required proxy configuration if it needs one to reach Trend Micro.
+This timeout setup is intentional because WinRM `ntlm` requires `read_timeout_sec` to be greater than `operation_timeout_sec` and both values must be non-zero.
 
 ## Run the playbook
 
-Run the playbook from this directory:
+From this directory:
 
 ```bash
-ansible-playbook -i inventory/hosts.ini playbook.yml
+ansible-playbook playbook.yml
 ```
 
-If you use encrypted Ansible Vault variables, add:
+If vault variables are encrypted:
 
 ```bash
-ansible-playbook -i inventory/hosts.ini playbook.yml --ask-vault-pass
+ansible-playbook playbook.yml --ask-vault-pass
 ```
 
 ## What the playbook does
 
-1. Checks whether the `tmlisten` and `ntrtscan` services are already running.
-2. Skips installation when both services are already running.
-3. Copies the single Client Packager artifact to the Windows host.
-4. Runs the MSI/EXE with the configured silent arguments.
-5. Removes the copied artifact, even when the installation fails.
-6. Checks the services again after installation.
+1. Connects to the Apex One share via `net use` on the remote Windows host.
+2. Uses the configured share credentials to authenticate to the network location.
+3. Executes the `AutoPcc` deployment workflow from the mounted share.
+4. Fails immediately if the share cannot be reached or the UNC path is invalid.
+
+## Known deployment behavior
+
+The current automation is sensitive to SMB/network availability. If the network share is unreachable, the task fails with errors such as:
+
+```text
+System error 67 has occurred.
+The network name cannot be found.
+```
+
+This usually means one of the following:
+
+- the UNC path is wrong
+- the Windows host cannot reach `10.100.33.116`
+- SMB port `445` is blocked or filtered
+- the share does not exist
+- the provided account lacks permission to access the share
 
 ## Troubleshooting
 
-- Check the Ansible output for WinRM connection errors.
-- Make sure the Ansible user has Administrator rights.
-- Make sure the Windows host can access Trend Micro endpoints.
-- Check the Trend Micro log at:
+Check these from the Windows endpoint:
 
-```text
-%APPDATA%\Trend Micro\V1ES\v1es_install.log
+```powershell
+Test-NetConnection 10.100.33.116 -Port 445
+dir \\10.100.33.116\ofcscan
+net use \\10.100.33.116\ofcscan /user:Administrator P@ssw0rd
 ```
 
-- Check the `EndpointBasecamp.log` file if agent registration fails.
+If the `net use` command fails, fix the SMB path, firewall, or credential issue before re-running the playbook.
+
+Also verify the WinRM connectivity:
+
+```powershell
+winrm quickconfig
+```
+
+If `winrm` is not properly configured, Ansible cannot reach the Windows host even though the SMB share may be valid.
+
+## Notes
+
+- This project is currently tuned for a share-based deployment model, not a local MSI package deployment model.
+- The share must be reachable from every target Windows host.
+- Use Ansible Vault for credentials and keep them out of the repository when possible.
