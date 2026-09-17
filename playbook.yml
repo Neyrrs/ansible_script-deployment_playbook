@@ -9,6 +9,20 @@
       tags:
         - precheck
 
+    - name: Report Apex One agent installation status
+      ansible.builtin.debug:
+        msg: >-
+          {% if apex_service_precheck.services | length > 0 %}
+          Apex One agent sudah ter-install.
+          Service: {{ apex_service_precheck.services[0].display_name }}
+          State: {{ apex_service_precheck.services[0].state }}
+          {% else %}
+          Apex One agent belum ter-install. Melanjutkan proses deployment.
+          {% endif %}
+      tags:
+        - precheck
+        - deploy
+
     - name: Remove ALL existing SMB connections to the server
       ansible.windows.win_command:
         argv:
@@ -80,9 +94,16 @@
       tags:
         - deploy
 
-    - name: Wait for agent service to register
-      ansible.builtin.pause:
-        seconds: 20
+    - name: Wait for agent service to become running
+      ansible.windows.win_service_info:
+        name: ntrtscan
+      register: apex_service_check
+      until:
+        - apex_service_check.services | length > 0
+        - apex_service_check.services[0].state | lower in ['started', 'running']
+      retries: 30
+      delay: 10
+      changed_when: false
       tags:
         - install
         - deploy
@@ -101,11 +122,16 @@
       tags:
         - verify
 
-    - name: Report final status
-      ansible.builtin.debug:
-        msg: >-
-          {% if apex_service_check.services | length > 0 and apex_service_check.services[0].state == 'running' %}
-          Apex One agent berhasil ter-install dan service berjalan.
-          {% endif %}
+    - name: Validate Apex One agent final status
+      ansible.builtin.assert:
+        that:
+          - apex_service_check.services | length > 0
+          - apex_service_check.services[0].state | lower in ['started', 'running']
+        success_msg: >-
+          Apex One agent berhasil ter-install dan service berjalan
+          (state: {{ apex_service_check.services[0].state }}).
+        fail_msg: >-
+          Validasi Apex One gagal: service ntrtscan tidak ditemukan atau tidak berjalan.
+          Detail: {{ apex_service_check.services | default([]) }}
       tags:
         - verify
